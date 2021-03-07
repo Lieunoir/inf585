@@ -43,19 +43,15 @@ namespace vcl
 
 		for(size_t kj=0; kj<N_joint; ++kj)
 		{
-			
+
 			affine_rt const T0 = animation_geometry_local[kt][kj];
 			affine_rt const T1 = animation_geometry_local[kt+1][kj];
 
-			// To do:
-			//   Set a correct interpolated rigid transform T for the skeleton
-			//   T = interpolation(T0, T1, alpha)
-			//   Note: T0, T1, and alpha are provided
-			//    T0 and T1 are affine_rt type that contains a translation (vec3) and a rotation element
-			//    alpha is the interpolation value \in [0,1]
-			//    You have to find which values to set on T.translate and T.rotation
-			
-			skeleton_current[kj] = T0; // Change this line
+            affine_rt T;
+            T.translate = alpha * T0.translate + (1-alpha) * T1.translate;
+            T.rotate = rotation::lerp(T0.rotate, T1.rotate, alpha);
+
+			skeleton_current[kj] = T;
 		}
 
 		return skeleton_current;
@@ -80,7 +76,7 @@ namespace vcl
 			for(size_t k=0; k<N_joint; ++k)
 				animation_geometry_local[kt][k].translate *= s;
 	}
-	
+
 
 	buffer<affine_rt> skeleton_animation_structure::evaluate_global(float t) const
 	{
@@ -102,7 +98,7 @@ namespace vcl
 
 		for (size_t k = 1; k < N; ++k)
 			global[k] = global[parent_index[k]] * local[k];
-	
+
 		return global;
 	}
 

@@ -37,8 +37,54 @@ namespace vcl
 
 		// To do
 		//   Compute the Linear Blend Skinning ...
+        for(int i = 0; i < N_vertex; i++) {
+            vec3 res(0.f, 0.f, 0.f);
+            vec3 resn(0.f, 0.f, 0.f);
+            quaternion resq1(0.0f, 0.0f, 0.0f, 0.0f);
+            quaternion resq2(0.0f, 0.0f, 0.0f, 0.0f);
+            for(int j = 0; j < rig.joint[i].size(); j++) {
+/*
+                quaternion temp1 = skeleton_current[rig.joint[i][j]].rotate.quat();
+                quaternion temp2(skeleton_current[rig.joint[i][j]].translate.x,
+                                skeleton_current[rig.joint[i][j]].translate.y,
+                                skeleton_current[rig.joint[i][j]].translate.z,
+                                0.0f);
+                temp2 = 0.5f * temp2 * temp1;
 
+                quaternion temp3 = skeleton_rest_pose[rig.joint[i][j]].rotate.quat();
+                quaternion temp4(skeleton_rest_pose[rig.joint[i][j]].translate.x,
+                                skeleton_rest_pose[rig.joint[i][j]].translate.y,
+                                skeleton_rest_pose[rig.joint[i][j]].translate.z,
+                                0.0f);
+                temp4 = 0.5f * temp4 * temp3;
 
+                temp3 = inverse(temp3);
+                temp4 = - 1.0f * temp3 * temp4 * temp3;
+
+                resq1 = resq1 + rig.weight[i][j] * temp1 * temp3;
+                resq2 = resq2 + rig.weight[i][j] * (temp1 * temp4 + temp2 * temp3);
+*/
+                res = res + rig.weight[i][j]
+                    * (skeleton_current[rig.joint[i][j]].translate + skeleton_current[rig.joint[i][j]].rotate
+                            * inverse(skeleton_rest_pose[rig.joint[i][j]].rotate)
+                            * ( - skeleton_rest_pose[rig.joint[i][j]].translate + position_rest_pose[i]));
+                resn = resn + rig.weight[i][j]
+                    * (skeleton_current[rig.joint[i][j]].translate + skeleton_current[rig.joint[i][j]].rotate
+                            * inverse(skeleton_rest_pose[rig.joint[i][j]].rotate)
+                            * ( - skeleton_rest_pose[rig.joint[i][j]].translate + normal_rest_pose[i]));
+                //resq += resq + rig.weight[i][j] * skeleton_current[rig.joint[i][j]];
+            }
+            /*
+            quaternion q0 = normalize(resq1);
+            quaternion q1 = 2.f * resq2 * conjugate(q0);
+            vec3 translation(q1.x, q1.y, q1.z);
+            mat3 rot = rotation::quaternion_to_matrix(q0);
+            position_skinned[i] = translation + rot * position_rest_pose[i];
+            normal_skinned[i] = translation + rot * normal_rest_pose[i];
+            */
+            position_skinned[i] = res;
+            normal_skinned[i] = resn;
+        }
 	}
 
 }

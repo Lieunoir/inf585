@@ -11,6 +11,8 @@
 #include "skeleton_drawable.hpp"
 #include "skinning.hpp"
 #include "skinning_loader.hpp"
+#include "animation.hpp"
+#include "ground.hpp"
 
 
 using namespace vcl;
@@ -72,22 +74,26 @@ skeleton_animation_structure skeleton_data;
 rig_structure rig;
 skinning_current_data skinning_data;
 
-
+marine_animation_structure marine_animation;
 
 timer_interval timer;
+timer_basic floor_timer;
+float previous_time;
+
+ground_struct ground;
+
+vec2 character_direction;
+vec2 character_position;
 
 void mouse_move_callback(GLFWwindow* window, double xpos, double ypos);
 void window_size_callback(GLFWwindow* window, int width, int height);
+void key_callback(GLFWwindow* window, int key, int scancode, int action, int mods);
 
 void initialize_data();
 void display_scene();
 void display_interface();
 void compute_deformation();
 void update_new_content(mesh const& shape, GLuint texture_id);
-
-
-
-
 
 int main(int, char* argv[])
 {
@@ -102,6 +108,7 @@ int main(int, char* argv[])
 	imgui_init(window);
 	glfwSetCursorPosCallback(window, mouse_move_callback);
 	glfwSetWindowSizeCallback(window, window_size_callback);
+    glfwSetKeyCallback(window, key_callback);
 
 	std::cout<<"Initialize data ..."<<std::endl;
 	initialize_data();
@@ -109,12 +116,14 @@ int main(int, char* argv[])
 	std::cout<<"Start animation loop ..."<<std::endl;
 	user.fps_record.start();
 	timer.start();
+    floor_timer.start();
 	glEnable(GL_DEPTH_TEST);
 	while (!glfwWindowShouldClose(window))
 	{
 		scene.light = scene.camera.position();
 		user.fps_record.update();
 		timer.update();
+        floor_timer.update();
 
 		glClearColor(1.0f, 1.0f, 1.0f, 1.0f);
 		glClear(GL_COLOR_BUFFER_BIT);
@@ -130,9 +139,10 @@ int main(int, char* argv[])
 
 		if(user.gui.display_frame)
 			draw(user.global_frame, scene);
-		
 
 		display_interface();
+        evolve_ground(floor_timer.t-previous_time, character_position, character_direction, ground);
+        previous_time = floor_timer.t;
 		compute_deformation();
 		display_scene();
 
@@ -164,34 +174,65 @@ void initialize_data()
 	user.gui.display_frame = false;
 	scene.camera.distance_to_center = 2.5f;
 
+    ground.shape = mesh_primitive_grid({-10, 0, -10}, {10, 0, -10}, {10, 0, 10}, {-10, 0, 10}, ground.size, ground.size);
+    ground.positions = ground.shape.position;
+    ground.visual = mesh_drawable(ground.shape);
+    ground.visual.shading.color  = {1.f, 1.f, 1.f};
+    initiate_ground(ground);
+
 	mesh shape;
-	load_cylinder(skeleton_data, rig, shape);
-	load_animation_bend_zx(skeleton_data.animation_geometry_local, 
-		skeleton_data.animation_time, 
-		skeleton_data.parent_index);
-	update_new_content(shape, texture_white);
+	load_skinning_anim("assets/marine/anim_run/", marine_animation.run_animation);
+	load_skinning_anim("assets/marine/anim_walk/", marine_animation.walk_animation);
+	load_skinning_anim("assets/marine/anim_idle/", marine_animation.idle_animation);
+    load_skinning_anim("assets/marine/anim_idle/", skeleton_data);
+    GLuint texture_id;
+	load_skinning_data("assets/marine/", skeleton_data, rig, shape, texture_id);
+    marine_animation.run_animation.parent_index = skeleton_data.parent_index;
+    marine_animation.walk_animation.parent_index = skeleton_data.parent_index;
+    marine_animation.idle_animation.parent_index = skeleton_data.parent_index;
+    marine_animation.run_animation.rest_pose_local = skeleton_data.rest_pose_local;
+    marine_animation.walk_animation.rest_pose_local = skeleton_data.rest_pose_local;
+    marine_animation.idle_animation.rest_pose_local = skeleton_data.rest_pose_local;
+
+    normalize_weights(rig.weight);
+    float const scaling = 0.005f;
+    for(auto& p: shape.position) p *= scaling;
+    skeleton_data.scale(scaling);
+    marine_animation.walk_animation.scale(scaling);
+    marine_animation.idle_animation.scale(scaling);
+    marine_animation.run_animation.scale(scaling);
+	update_new_content(shape, texture_id);
 }
+
 
 void compute_deformation()
 {
-	float const t = timer.t;
+    if(marine_animation.transition) {
+        skinning_data.skeleton_current = transition(marine_animation, skeleton_data, timer);
+    } else {
+        float const t = timer.t;
+        skinning_data.skeleton_current = skeleton_data.evaluate_global(t);
+    }
 
-	skinning_data.skeleton_current = skeleton_data.evaluate_global(t);
-	visual_data.skeleton_current.update(skinning_data.skeleton_current, skeleton_data.parent_index);
+    // Compute skinning deformation
+    skinning_LBS_compute(skinning_data.position_skinned, skinning_data.normal_skinned,
+        skinning_data.skeleton_current, skinning_data.skeleton_rest_pose,
+        skinning_data.position_rest_pose, skinning_data.normal_rest_pose,
+        rig);
 
-	// Compute skinning deformation
-	skinning_LBS_compute(skinning_data.position_skinned, skinning_data.normal_skinned, 
-		skinning_data.skeleton_current, skinning_data.skeleton_rest_pose, 
-		skinning_data.position_rest_pose, skinning_data.normal_rest_pose,
-		rig);
-	visual_data.surface_skinned.update_position(skinning_data.position_skinned);
-	visual_data.surface_skinned.update_normal(skinning_data.normal_skinned);
-	
+    add_ground_offset(ground, skinning_data.position_skinned);
+    add_ground_offset(ground, skinning_data.skeleton_current);
+    //TODO compute character facing rotation
+    //TODO add IK
+
+    visual_data.skeleton_current.update(skinning_data.skeleton_current, skeleton_data.parent_index);
+    visual_data.surface_skinned.update_position(skinning_data.position_skinned);
+    visual_data.surface_skinned.update_normal(skinning_data.normal_skinned);
 }
 
 void display_scene()
 {
-	if(user.gui.surface_skinned) 
+	if(user.gui.surface_skinned)
 		draw(visual_data.surface_skinned, scene);
 	if (user.gui.wireframe_skinned)
 		draw_wireframe(visual_data.surface_skinned, scene, {0.5f, 0.5f, 0.5f});
@@ -203,6 +244,7 @@ void display_scene()
 	if (user.gui.wireframe_rest_pose)
 		draw_wireframe(visual_data.surface_rest_pose, scene, {0.5f, 0.5f, 0.5f});
 
+    draw(ground.visual, scene);
 	draw(visual_data.skeleton_rest_pose, scene);
 
 }
@@ -230,7 +272,7 @@ void update_new_content(mesh const& shape, GLuint texture_id)
 
 	visual_data.skeleton_rest_pose.clear();
 	visual_data.skeleton_rest_pose = skeleton_drawable(skinning_data.skeleton_rest_pose, skeleton_data.parent_index);
-	
+
 	timer.t_min = skeleton_data.animation_time[0];
 	timer.t_max = skeleton_data.animation_time[skeleton_data.animation_time.size()-1];
 	timer.t = skeleton_data.animation_time[0];
@@ -246,7 +288,7 @@ void display_interface()
 
 	ImGui::Spacing(); ImGui::Spacing();
 
-	ImGui::Text("Deformed "); 
+	ImGui::Text("Deformed ");
 	ImGui::Text("Surface: ");ImGui::SameLine();
 	ImGui::Checkbox("Plain", &user.gui.surface_skinned); ImGui::SameLine();
 	ImGui::Checkbox("Wireframe", &user.gui.wireframe_skinned);
@@ -279,76 +321,7 @@ void display_interface()
 	visual_data.skeleton_rest_pose.display_joint_sphere = user.gui.skeleton_rest_pose_sphere;
 
 	mesh new_shape;
-	bool update = false;
-	ImGui::Text("Cylinder"); ImGui::SameLine();
-	bool const cylinder_bend_z = ImGui::Button("Bend z###CylinderBendZ");  ImGui::SameLine();
-	if (cylinder_bend_z) {
-		update=true;
-		load_cylinder(skeleton_data, rig, new_shape);
-		load_animation_bend_z(skeleton_data.animation_geometry_local, 
-			skeleton_data.animation_time, 
-			skeleton_data.parent_index);
-	}
-	bool const cylinder_bend_zx = ImGui::Button("Bend zx###CylinderBendZX");
-	if(cylinder_bend_zx)std::cout<<cylinder_bend_zx<<std::endl;
-	if (cylinder_bend_zx) {
-		update=true;
-		load_cylinder(skeleton_data, rig, new_shape);
-		load_animation_bend_zx(skeleton_data.animation_geometry_local, 
-			skeleton_data.animation_time, 
-			skeleton_data.parent_index);
-	}
-
-	ImGui::Text("Rectangle"); ImGui::SameLine();
-	bool const rectangle_bend_z = ImGui::Button("Bend z###RectangleBendZ");  ImGui::SameLine();
-	if (rectangle_bend_z) {
-		update=true;
-		load_rectangle(skeleton_data, rig, new_shape);
-		load_animation_bend_z(skeleton_data.animation_geometry_local, 
-			skeleton_data.animation_time, 
-			skeleton_data.parent_index);
-	}
-	bool const rectangle_bend_zx = ImGui::Button("Bend zx###RectangleBendZX");
-	if (rectangle_bend_zx) {
-		update=true;
-		load_rectangle(skeleton_data, rig, new_shape);
-		load_animation_bend_zx(skeleton_data.animation_geometry_local, 
-			skeleton_data.animation_time, 
-			skeleton_data.parent_index);
-	}
-	bool const rectangle_twist_x = ImGui::Button("Twist x###RectangleTwistX");
-	if (rectangle_twist_x) {
-		update=true;
-		load_rectangle(skeleton_data, rig, new_shape);
-		load_animation_twist_x(skeleton_data.animation_geometry_local, 
-			skeleton_data.animation_time, 
-			skeleton_data.parent_index);
-	}
-
-	ImGui::Text("Marine"); ImGui::SameLine();
-	bool const marine_run = ImGui::Button("Run"); ImGui::SameLine();
-	bool const marine_walk = ImGui::Button("Walk"); ImGui::SameLine();
-	bool const marine_idle = ImGui::Button("Idle");
-
-	GLuint texture_id = mesh_drawable::default_texture;
-	if (marine_run || marine_walk || marine_idle) load_skinning_data("assets/marine/", skeleton_data, rig, new_shape, texture_id);
-	if(marine_run) load_skinning_anim("assets/marine/anim_run/", skeleton_data);
-	if(marine_walk) load_skinning_anim("assets/marine/anim_walk/", skeleton_data);
-	if(marine_idle) load_skinning_anim("assets/marine/anim_idle/", skeleton_data);
-	if (marine_run || marine_walk || marine_idle) {
-		update=true;
-		normalize_weights(rig.weight);
-		float const scaling = 0.005f;
-		for(auto& p: new_shape.position) p *= scaling;
-		skeleton_data.scale(scaling);
-	}
-
-	if (update) 
-		update_new_content(new_shape, texture_id);
-
 }
-
-
 
 void window_size_callback(GLFWwindow* , int width, int height)
 {
@@ -385,5 +358,49 @@ void opengl_uniform(GLuint shader, scene_environment const& current_scene)
 	opengl_uniform(shader, "light", scene.light, false);
 }
 
+bool shift = false;
 
-
+void key_callback(GLFWwindow* window, int key, int scancode, int action, int mods) {
+    if(action == GLFW_PRESS) {
+        if(key == GLFW_KEY_UP)
+            character_direction = {0.0f, 1.0f};
+        if(key == GLFW_KEY_DOWN)
+            character_direction = {0.0f, -1.0f};
+        if(key == GLFW_KEY_LEFT)
+            character_direction = {1.0f, .0f};
+        if(key == GLFW_KEY_RIGHT)
+            character_direction = {-1.0f, .0f};
+        if(key == GLFW_KEY_UP || key == GLFW_KEY_DOWN || key == GLFW_KEY_LEFT || key == GLFW_KEY_RIGHT) {
+            change_animation(marine_animation, timer);
+            if(!shift)
+                marine_animation.next_animation = WALK;
+            else {
+                marine_animation.next_animation = RUN;
+                character_direction *= 2.f;
+            }
+        }
+        if(key == GLFW_KEY_LEFT_SHIFT) {
+            shift = true;
+            if(marine_animation.current_animation == WALK) {
+                change_animation(marine_animation, timer);
+                marine_animation.next_animation = RUN;
+                character_direction *= 2.f;
+            }
+        }
+    }
+    if(action == GLFW_RELEASE) {
+        if(key == GLFW_KEY_LEFT_SHIFT) {
+            shift = false;
+            if(marine_animation.current_animation == RUN) {
+                change_animation(marine_animation, timer);
+                marine_animation.next_animation = WALK;
+                character_direction /= 2.f;
+            }
+        }
+        if(key == GLFW_KEY_UP || key == GLFW_KEY_DOWN || key == GLFW_KEY_LEFT || key == GLFW_KEY_RIGHT) {
+            change_animation(marine_animation, timer);
+            marine_animation.next_animation = IDLE;
+            character_direction = {0.0f, 0.0f};
+        }
+    }
+}
