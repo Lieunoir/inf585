@@ -18,7 +18,7 @@ namespace vcl
 
     void initiate_ground(ground_struct &ground);
 
-    void evolve_ground(float dt, vec2 &character_position, vec2 &character_direction, ground_struct &ground);
+    void evolve_ground(float dt, vec2 &character_position, vec2 character_direction, ground_struct &ground, float speed);
 
     float add_ground_offset(ground_struct &ground, buffer<vec3> &mesh, int i1, int i2);
     float add_ground_offset(ground_struct &ground, buffer<affine_rt> &mesh, int i1, int i2);

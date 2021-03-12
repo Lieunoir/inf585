@@ -79,11 +79,18 @@ marine_animation_structure marine_animation;
 timer_interval timer;
 timer_basic floor_timer;
 float previous_time;
+timer_basic rotate_timer;
+
 
 ground_struct ground;
 
-vec2 character_direction;
+// vec2 character_direction;
 vec2 character_position;
+float start_angle = 0.0;
+float speed = 0.0;
+
+float target_angle = 0.0;
+float current_angle = 0.0;
 
 void mouse_move_callback(GLFWwindow* window, double xpos, double ypos);
 void window_size_callback(GLFWwindow* window, int width, int height);
@@ -141,7 +148,7 @@ int main(int, char* argv[])
 			draw(user.global_frame, scene);
 
 		display_interface();
-        evolve_ground(floor_timer.t-previous_time, character_position, character_direction, ground);
+        evolve_ground(floor_timer.t-previous_time, character_position, vec2(std::sin(current_angle), std::cos(current_angle)), ground, speed);
         previous_time = floor_timer.t;
 		compute_deformation();
 		display_scene();
@@ -202,6 +209,7 @@ void initialize_data()
     marine_animation.idle_animation.scale(scaling);
     marine_animation.run_animation.scale(scaling);
 	update_new_content(shape, texture_id);
+	rotate_timer.start();
 }
 
 
@@ -214,11 +222,32 @@ void compute_deformation()
         skinning_data.skeleton_current = skeleton_data.evaluate_global(t);
     }
 
+	rotate_timer.update();
+    // Compute skinning deformation
+	current_angle = start_angle;
+	for(int i = 0; i < skinning_data.skeleton_current.size(); i++)
+	{
+
+		if(rotate_timer.t > 0.5f) // finish the rotation
+		{
+			start_angle = target_angle;
+			skinning_data.skeleton_current[i] = rotation({0,1,0},start_angle)*skinning_data.skeleton_current[i];
+		}
+		else { //rotating
+			float alpha = rotate_timer.t / 0.5;
+			current_angle = alpha * target_angle + (1 - alpha) * start_angle;
+			skinning_data.skeleton_current[i] = rotation({0,1,0},current_angle)*skinning_data.skeleton_current[i];
+
+			//skinning_data.skeleton_current[i] = rotation::lerp(rotation({0,1,0},start_angle), rotation({0,1,0},target_angle), (rotate_timer.t / 0.5))*skinning_data.skeleton_current[i];
+		}
+		// skinning_data.skeleton_current[i].translate = {-1,0,0};
+	}
+
     float off = add_ground_offset(ground, skinning_data.skeleton_current, 5, 9);
 
     add_legs_IK(ground, skinning_data.skeleton_current, off);
 
-    // Compute skinning deformation
+
     skinning_LBS_compute(skinning_data.position_skinned, skinning_data.normal_skinned,
         skinning_data.skeleton_current, skinning_data.skeleton_rest_pose,
         skinning_data.position_rest_pose, skinning_data.normal_rest_pose,
@@ -244,7 +273,6 @@ void display_scene()
 		draw_wireframe(visual_data.surface_rest_pose, scene, {0.5f, 0.5f, 0.5f});
 
     draw(ground.visual, scene);
-    draw_wireframe(ground.visual, scene, {0,0,0});
 	draw(visual_data.skeleton_rest_pose, scene);
 
 }
@@ -359,48 +387,182 @@ void opengl_uniform(GLuint shader, scene_environment const& current_scene)
 }
 
 bool shift = false;
+bool up = false;
 
 void key_callback(GLFWwindow* window, int key, int scancode, int action, int mods) {
+
     if(action == GLFW_PRESS) {
-        if(key == GLFW_KEY_UP)
-            character_direction = {0.0f, 1.0f};
-        if(key == GLFW_KEY_DOWN)
-            character_direction = {0.0f, -1.0f};
-        if(key == GLFW_KEY_LEFT)
-            character_direction = {1.0f, .0f};
-        if(key == GLFW_KEY_RIGHT)
-            character_direction = {-1.0f, .0f};
-        if(key == GLFW_KEY_UP || key == GLFW_KEY_DOWN || key == GLFW_KEY_LEFT || key == GLFW_KEY_RIGHT) {
-            change_animation(marine_animation, timer);
-            if(!shift)
-                marine_animation.next_animation = WALK;
-            else {
-                marine_animation.next_animation = RUN;
-                character_direction *= 2.f;
-            }
-        }
-        if(key == GLFW_KEY_LEFT_SHIFT) {
-            shift = true;
-            if(marine_animation.current_animation == WALK) {
-                change_animation(marine_animation, timer);
-                marine_animation.next_animation = RUN;
-                character_direction *= 2.f;
-            }
-        }
-    }
-    if(action == GLFW_RELEASE) {
-        if(key == GLFW_KEY_LEFT_SHIFT) {
-            shift = false;
-            if(marine_animation.current_animation == RUN) {
-                change_animation(marine_animation, timer);
-                marine_animation.next_animation = WALK;
-                character_direction /= 2.f;
-            }
-        }
-        if(key == GLFW_KEY_UP || key == GLFW_KEY_DOWN || key == GLFW_KEY_LEFT || key == GLFW_KEY_RIGHT) {
-            change_animation(marine_animation, timer);
-            marine_animation.next_animation = IDLE;
-            character_direction = {0.0f, 0.0f};
-        }
-    }
+		if(key == GLFW_KEY_LEFT_SHIFT)
+		{
+			shift = true;
+			if(marine_animation.current_animation == WALK)
+			{
+				change_animation(marine_animation, timer);
+				marine_animation.next_animation = RUN;
+				speed = 1.0 * 2.f;
+			}
+		}
+        if(key == GLFW_KEY_UP) {
+			up = true;
+			if(marine_animation.current_animation == IDLE && shift == false ) {
+				change_animation(marine_animation, timer);
+				marine_animation.next_animation = WALK;
+				speed = 1.0;
+			}
+			if(marine_animation.current_animation == IDLE && shift == true)
+			{
+				change_animation(marine_animation, timer);
+				marine_animation.next_animation = RUN;
+				speed = 1.0 * 2.f;
+			}
+
+		}
+		if(key == GLFW_KEY_DOWN)
+		{
+			start_angle = current_angle;
+			rotate_timer.t = 0;
+			target_angle = float(start_angle + M_PI);
+			if(up == true) {
+				if(marine_animation.current_animation == IDLE && shift == false) {
+					change_animation(marine_animation, timer);
+					marine_animation.next_animation = WALK;
+					speed = 1.0;
+				}
+				if(marine_animation.current_animation == IDLE && shift == true)
+				{
+					change_animation(marine_animation, timer);
+					marine_animation.next_animation = RUN;
+					speed = 1.0 * 2.f;
+				}
+			}
+			else {
+				change_animation(marine_animation, timer);
+				marine_animation.next_animation = IDLE;
+				speed = 0.0;
+			}
+		}
+		if(key == GLFW_KEY_LEFT)
+		{
+			start_angle = current_angle;
+			rotate_timer.t = 0;
+			target_angle = float(start_angle + M_PI/2);
+			if(up == true) {
+				if(marine_animation.current_animation == IDLE && shift == false) {
+					change_animation(marine_animation, timer);
+					marine_animation.next_animation = WALK;
+					speed = 1.0;
+				}
+				if(marine_animation.current_animation == IDLE && shift == true)
+				{
+					change_animation(marine_animation, timer);
+					marine_animation.next_animation = RUN;
+					speed = 1.0 * 2.f;
+				}
+			}
+			else {
+				change_animation(marine_animation, timer);
+				marine_animation.next_animation = IDLE;
+				speed = 0.0;
+			}
+		}
+		if(key == GLFW_KEY_RIGHT)
+		{
+			start_angle = current_angle;
+			rotate_timer.t = 0;
+			target_angle = float(start_angle - M_PI/2);
+			if(up == true) {
+				if(marine_animation.current_animation == IDLE && shift == false) {
+					change_animation(marine_animation, timer);
+					marine_animation.next_animation = WALK;
+					speed = 1.0;
+				}
+				if(marine_animation.current_animation == IDLE && shift == true)
+				{
+					change_animation(marine_animation, timer);
+					marine_animation.next_animation = RUN;
+					speed = 1.0 * 2.f;
+				}
+			}
+			else {
+				change_animation(marine_animation, timer);
+				marine_animation.next_animation = IDLE;
+				speed = 0.0;
+			}
+		}
+
+	}
+	if(action == GLFW_RELEASE)
+	{
+		if(key ==  GLFW_KEY_LEFT_SHIFT)
+		{
+			shift = false;
+			if(marine_animation.current_animation == RUN)
+			{
+				change_animation(marine_animation, timer);
+				marine_animation.next_animation = WALK;
+				speed = 1.0;
+			}
+		}
+		if(key == GLFW_KEY_UP)
+		{
+			up = false;
+			change_animation(marine_animation, timer);
+			marine_animation.next_animation = IDLE;
+			speed = 0.0;
+		}
+		if(key == GLFW_KEY_DOWN)
+		{
+			if( up == true && marine_animation.current_animation == WALK) {
+				marine_animation.next_animation = WALK;
+				speed = 1.0;
+			}
+			else if(up == true && marine_animation.current_animation == RUN)
+			{
+				marine_animation.next_animation = RUN;
+				speed = 1.0;
+			}
+			else
+			{
+				change_animation(marine_animation, timer);
+				marine_animation.next_animation = IDLE;
+				speed = 0.0;
+			}
+		}
+		if(key == GLFW_KEY_LEFT)
+		{
+			if( up == true && marine_animation.current_animation == WALK) {
+				marine_animation.next_animation = WALK;
+				speed = 1.0;
+			}
+			else if(up == true && marine_animation.current_animation == RUN)
+			{
+				marine_animation.next_animation = RUN;
+				speed = 1.0;
+			}
+			else
+			{
+				change_animation(marine_animation, timer);
+				marine_animation.next_animation = IDLE;
+				speed = 0.0;
+			}
+		}
+		if(key == GLFW_KEY_RIGHT)
+		{
+			if( up == true && marine_animation.current_animation == WALK) {
+				marine_animation.next_animation = WALK;
+				speed = 1.0;
+			}
+			else if(up == true && marine_animation.current_animation == RUN)
+			{
+				marine_animation.next_animation = RUN;
+				speed = 1.0;
+			}
+			else
+			{
+				change_animation(marine_animation, timer);
+				marine_animation.next_animation = IDLE;
+				speed = 0.0;
+			}
+		}
+	}
 }
