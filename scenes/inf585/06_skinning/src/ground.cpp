@@ -14,8 +14,10 @@ namespace vcl
         ground.character_position = bestIndex;
     }
 
-    void evolve_ground(float dt, vec2 &character_position, vec2 &character_direction, ground_struct &ground) {
-        character_position += character_direction*dt;
+    void evolve_ground(float dt, vec2 &character_position, vec2 character_direction, ground_struct &ground, float speed) {
+        //character_position += character_direction*dt;
+        character_position += character_direction*dt*speed;
+
         size_t const N = ground.size;
         for(size_t k=0; k<N*N; ++k)
         {
