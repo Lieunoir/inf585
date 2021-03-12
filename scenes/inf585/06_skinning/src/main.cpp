@@ -214,16 +214,15 @@ void compute_deformation()
         skinning_data.skeleton_current = skeleton_data.evaluate_global(t);
     }
 
+    float off = add_ground_offset(ground, skinning_data.skeleton_current, 5, 9);
+
+    add_legs_IK(ground, skinning_data.skeleton_current, off);
+
     // Compute skinning deformation
     skinning_LBS_compute(skinning_data.position_skinned, skinning_data.normal_skinned,
         skinning_data.skeleton_current, skinning_data.skeleton_rest_pose,
         skinning_data.position_rest_pose, skinning_data.normal_rest_pose,
         rig);
-
-    add_ground_offset(ground, skinning_data.position_skinned);
-    add_ground_offset(ground, skinning_data.skeleton_current);
-    //TODO compute character facing rotation
-    //TODO add IK
 
     visual_data.skeleton_current.update(skinning_data.skeleton_current, skeleton_data.parent_index);
     visual_data.surface_skinned.update_position(skinning_data.position_skinned);
@@ -245,6 +244,7 @@ void display_scene()
 		draw_wireframe(visual_data.surface_rest_pose, scene, {0.5f, 0.5f, 0.5f});
 
     draw(ground.visual, scene);
+    draw_wireframe(ground.visual, scene, {0,0,0});
 	draw(visual_data.skeleton_rest_pose, scene);
 
 }
