@@ -180,6 +180,7 @@ void initialize_data()
 	user.global_frame = mesh_drawable(mesh_primitive_frame());
 	user.gui.display_frame = false;
 	scene.camera.distance_to_center = 2.5f;
+    scene.camera.center_of_rotation = {0.f, 1.f, 0.f};
 
     ground.shape = mesh_primitive_grid({-10, 0, -10}, {10, 0, -10}, {10, 0, 10}, {-10, 0, 10}, ground.size, ground.size);
     ground.positions = ground.shape.position;
