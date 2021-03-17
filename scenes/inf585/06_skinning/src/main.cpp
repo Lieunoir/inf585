@@ -520,7 +520,7 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
 			else if(up == true && marine_animation.current_animation == RUN)
 			{
 				marine_animation.next_animation = RUN;
-				speed = 1.0;
+				speed = 2.0;
 			}
 			else
 			{
@@ -538,7 +538,7 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
 			else if(up == true && marine_animation.current_animation == RUN)
 			{
 				marine_animation.next_animation = RUN;
-				speed = 1.0;
+				speed = 2.0;
 			}
 			else
 			{
@@ -556,7 +556,7 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
 			else if(up == true && marine_animation.current_animation == RUN)
 			{
 				marine_animation.next_animation = RUN;
-				speed = 1.0;
+				speed = 2.0;
 			}
 			else
 			{
